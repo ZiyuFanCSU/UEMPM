@@ -22,11 +22,13 @@ conda activate my_env
 
 ## 📚 Resource Download
 
-Download [pretraining data](https://drive.google.com/file/d/1t1Ws-wPYPeeuc8f_SGgnfUCVCzlM_jUJ/view?usp=sharing) and put it into ``./datasets/``.
+Download [pretraining data](https://drive.google.com/drive/folders/1BOGG5xSRv4XVAzg8tLSD-hRVq964BmBd?usp=drive_link) and put it into ``./datasets/``.
 
 **Note:** You can find the toy dataset in ``./datasets/toy/``
 
-You can download the pre-trained models: [UEMPM-gene](https://huggingface.co/zjunlp/MolGen-large) and [UEMPM-pre](https://huggingface.co/zjunlp/MolGen-large-opt). Put them into ``./pretrained_models/``
+You can download the pre-trained models: [UEMPM_gene](https://drive.google.com/drive/folders/1kpXcK0yZZqwbj4tCYm8NS8GDh6k_Fs36?usp=drive_link) and [UEMPM_pre](https://drive.google.com/drive/folders/1kpXcK0yZZqwbj4tCYm8NS8GDh6k_Fs36?usp=drive_link). Put them into ``./pretrained_models/``
+
+**Note:** This may require modifying the path and filename to ensure successful execution.
 
 The MoleculeNet dataset can be downloaded from [here](https://drive.google.com/file/d/1IdW6J6tX4j5JU0bFcQcuOBVwGNdX7pZp/view?usp=sharing).
 
@@ -36,53 +38,60 @@ The expected structure of files is:
 UEMPM
 ├── datasets 
 │   ├── toy                   # toy dataset for a quick start
+│   ├── MoleculeNet           # used for downstream tasks
 │   ├── example_set.csv       # set the scaffold levenstain distance to 3
 │   ├── challenging_set.csv   # select samples with large reconstruction loss
+│   ├── normalize.pkl         # mean and variance of molecular properties
+│   ├── pair.csv              # the correlation between properties
+│   ├── vocab.pickle          # the complete ChEMBL database
+│   ├── s_my_train_53prop.csv # used for RMSD calculation
+│   ├── gene.csv              # target properties for the generated molecules
 │   ├── valid.csv             # validation set divided by scaffold
 │   └── test.csv              # test set divided by scaffold
 ├── pretrained_models
+│   ├── VAE.pth               # pre-training parameters for VAE
 │   ├── UEMPM_gene.pth        # pre-training parameters for generation tasks and retrieval tasks
 │   └── UEMPM_pred.pth        # pre-training parameters for prediction tasks
-├── output                    # generate molecules
-├── output                    # molecule candidates
-└── vocab_list
-    └── zinc.npy                # SELFIES alphabet
+├── proputils                 # the main part of the model code is here
+├── stutils                   # the main part of the VAE code is here
+├── utils                     # data splits, and metric calculations are included here
+├── gene.py                   # molecule generation
+├── predict.py                # molecule property prediction
+└── pretrain.py               # model pre-training
 ``` 
 
-# 🚀 How to run
+## 🚀 How to run
 
 1. Pre-training
     ```
-    python SPMM_pretrain.py --data_path './data/pretrain.txt'
+    python SPMM_pretrain.py --tr_datapath './datasets/toy/toy.csv' --ddevice "cuda:0" --batch_size "8"
     ```
 
-2. PV-to-SMILES generation
-batched: The model takes PVs from the molecules in `input_file`, and generates molecules with those PVs using k-beam search. The generated molecules will be written in `generated_molecules.txt`.
+2. Molecule generation
 
-       ```
-       python d_pv2smiles_batched.py --checkpoint './Pretrain/checkpoint_SPMM.ckpt' --input_file './data/pubchem_1k_unseen.txt' --k 2
-       ```
+    ```
+    python gene.py --batch_size '1' --gene_N '2000' --k 2
+    ```
+
+4. Molecular property prediction
+
+    ```
+    python predict.py --task_type 'classification' --dataset 'toxcast' --batch_size '32' --lr '5e-5'
+    ```
+    For most datasets, this parameter works well. For some datasets, relying on this parameter may cause early stopping too soon. In such cases, reducing the learning rate or increasing the early stopping patience can help ensure the loss decreases to nearly zero, enabling the results to match those reported in the paper.
    
-  single: The model takes one query PV and generates `n_generate` molecules with that PV using k-beam search. The generated molecules will be written in `generated_molecules.txt`. Here, you need to build your input PV in the file `p2s_input.csv`. Check the four examples that we included.
+## References
 
-       ```
-       python d_pv2smiles_single.py --checkpoint './Pretrain/checkpoint_SPMM.ckpt' --n_generate 1000 --stochastic True --k 2
-       ```
+We are grateful for the open-source code provided by these works, which has greatly assisted us. All have been cited in our submitted paper, and we would like to express our thanks again here.
 
-4. SMILES-to-PV generation
-    
-    The model takes the query molecules in `input_file`, and generates their PV.
+<a id="1">[1]</a>
+Zhu H, Zhou R, Cao D, et al. A pharmacophore-guided deep learning approach for bioactive molecular generation[J]. Nature Communications, 2023, 14(1): 6234.
 
-    ```
-    python d_smiles2pv.py --checkpoint './Pretrain/checkpoint_SPMM.ckpt' --input_file './data/pubchem_1k_unseen.txt'
-    ```
+<a id="2">[2]</a>
+Zeng X, Xiang H, Yu L, et al. Accurate prediction of molecular properties and drug targets using a self-supervised image representation learning framework[J]. Nature Machine Intelligence, 2022, 4(11): 1004-1016.
 
-5. MoleculeNet + DILI prediction task
+<a id="3">[3]</a>
+Chang J, Ye J C. Bidirectional generation of structure and properties through a single molecular foundation model[J]. Nature Communications, 2024, 15(1): 2323.
 
-    `d_regression.py`, `d_classification.py`, and `d_classification_multilabel.py`, perform regression, binary classification, and multi-label classification tasks, respectively.
-
-    ```
-    python d_regression.py --checkpoint './Pretrain/checkpoint_SPMM.ckpt' --name 'bace'
-    python d_classification.py --checkpoint './Pretrain/checkpoint_SPMM.ckpt' --name 'bbbp'
-    python d_classification_multilabel.py --checkpoint './Pretrain/checkpoint_SPMM.ckpt' --name 'clintox'
-    ```
+<a id="4">[4]</a>
+Li H, Zhao D, Zeng J. KPGT: knowledge-guided pre-training of graph transformer for molecular property prediction[C]//Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery and Data Mining. 2022: 857-867.
