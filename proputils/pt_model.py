@@ -299,4 +299,91 @@ class PropModel(nn.Module):
                     ret_dict['gene_lm_loss'] = gene_lm_loss
 
                 return ret_dict
+    @torch.jit.unused
+    def for_retrieval(self,fi,ft,inputs, input_mask, targets,target_mask, props,batch_size,
+                 smi_kl = True,return_dict = True,if_gene = False,sm = True):
+        if props != None:
+            batch_size = inputs.shape[0]
+            if smi_kl:
+                z, kl_loss_z = self.smiencoder.calculate_z(inputs, input_mask)
+
+            _, target_length = targets.shape
+            target_maskk = torch.triu(torch.ones(target_length, target_length, dtype=torch.bool),
+                                    diagonal=1).to(inputs.device)
+            target_embed = self.smiencoder.word_embed(targets)
+            target_embed = self.smiencoder.pos_encoding(target_embed.permute(1, 0, 2).contiguous())
+
+            output = self.smiencoder.decoder(target_embed, z,
+                                x_mask=target_maskk, mem_padding_mask=z.new_zeros(z.shape[1], z.shape[0])).permute(1, 0, 2).contiguous()
+            prediction_scores = self.smiencoder.word_pred(output)  
+
+            shifted_prediction_scores = prediction_scores[:, :-1, :].contiguous()
+            lm_loss = F.cross_entropy(shifted_prediction_scores.view(-1, self.smiencoder.vocab_size), targets[:, 1:].contiguous().view(-1),
+                                    ignore_index=self.smiencoder.pad_value)
+
+            x = self.smiencoder.word_embed(inputs)
+            xt = x.permute(1, 0, 2).contiguous() 
+            xt = self.smiencoder.pos_encoding(xt)
+            zz = self.smiencoder.encoder(xt, input_mask)
+            zz = self.mapping_s2g(zz)
+
+            x2 = self.smiencoder.word_embed(targets)
+            xt2 = x2.permute(1, 0, 2).contiguous() 
+            xt2 = self.smiencoder.pos_encoding(xt2)
+            z2 = self.smiencoder.encoder(xt2, target_mask)
+            zz2 = self.mapping_s2g(z2)
+
+            v,vm,vvs = self.process_p(props,value=0,sm=sm)
+            v2,vm2,vvs2 = self.process_p(props,sm=sm)
+            while torch.equal(vm, vm2):
+                v2,vm2 = self.process_p(props,sm=sm)
+
+            v_c = self.mapping_g2s(vvs)
+            v2_c = self.mapping_g2s(vvs2)
+            v_c_v = self.mapping_g2s2(v)
+            v2_c_v = self.mapping_g2s2(v2)
+
+            phar_features_1_all = (v_c_v / (v_c_v.norm(dim=-1, keepdim=True)+1e-10))
+            phar_features_2_all = (v2_c_v / (v2_c_v.norm(dim=-1, keepdim=True)+1e-10))
+            smiles_features_all = (zz / (zz.norm(dim=-1, keepdim=True)+1e-10)).permute(1, 0, 2)[:,0]
+            smiles_features_aug_all = (zz2 / (zz2.norm(dim=-1, keepdim=True)+1e-10)).permute(1, 0, 2)[:,0]
+            
+            phar_features_1 = (v_c / (v_c.norm(dim=-1, keepdim=True)+1e-10))
+            phar_features_2 = (v2_c / (v2_c.norm(dim=-1, keepdim=True)+1e-10))
+            smiles_features = (zz / (zz.norm(dim=-1, keepdim=True)+1e-10))
+            smiles_features_aug = (zz2 / (zz2.norm(dim=-1, keepdim=True)+1e-10))
+
+           
+            
+            _, N_frag, _ = fi.shape
+            D = zz.shape[-1]
+            smiles_features_f = zz.permute(1, 0, 2)
+            frag_idx_clamped = fi.clamp(min=0)
+            frag_mask = (fi != -1).float()
+            frag_idx_expanded = frag_idx_clamped.unsqueeze(-1).expand(-1, -1, -1, D)
+            token_selected = torch.gather(smiles_features_f.unsqueeze(1).expand(-1, N_frag, -1, -1), 2, frag_idx_expanded)
+
+            token_selected = token_selected * frag_mask.unsqueeze(-1) 
+            frag_embeddings = token_selected.sum(dim=2) / (frag_mask.sum(dim=2, keepdim=True) + 1e-8)  
+            frag_embeddings_i = (frag_embeddings / (frag_embeddings.norm(dim=-1, keepdim=True)+1e-10))
+
+            _, N_frag, _ = ft.shape
+            D = zz2.shape[-1]
+            smiles_features_f = zz2.permute(1, 0, 2)
+            frag_idx_clamped = ft.clamp(min=0)
+            frag_mask = (ft != -1).float() 
+            frag_idx_expanded = frag_idx_clamped.unsqueeze(-1).expand(-1, -1, -1, D)
+            token_selected = torch.gather(smiles_features_f.unsqueeze(1).expand(-1, N_frag, -1, -1), 2, frag_idx_expanded)
+            token_selected = token_selected * frag_mask.unsqueeze(-1) 
+            frag_embeddings = token_selected.sum(dim=2) / (frag_mask.sum(dim=2, keepdim=True) + 1e-8)
+            frag_embeddings_t = (frag_embeddings / (frag_embeddings.norm(dim=-1, keepdim=True)+1e-10))
+
+            ret_dict = {}
+            ret_dict['logits_all'] = smiles_features_all,smiles_features_aug_all,phar_features_1_all,phar_features_2_all
+            ret_dict['logits_a'] = smiles_features,smiles_features_aug,phar_features_1,phar_features_2
+            ret_dict['logits_f'] = frag_embeddings_i,frag_embeddings_t,phar_features_1,phar_features_2
+
+            return ret_dict
+                   
+                   
        
