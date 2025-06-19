@@ -35,7 +35,7 @@ from multiprocessing import Pool
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--gene_N', type=int, default=20)
+    parser.add_argument('--gene_N', type=int, default=100)
     parser.add_argument('--file_num', type=int, default=1)
     parser.add_argument('--normal_path', type=str, default="./datasets/normalize.pkl")
     parser.add_argument('--num_workers', type=int, default=1)
@@ -75,7 +75,6 @@ def load_model(address,device,st_tokenizer):
         new_state_dict[new_key] = state_dict[key]
 
     phargnn_model.load_state_dict(new_state_dict, strict=False)
-    torch.save(phargnn_model.state_dict(), '/ifs/home/fanziyu/project/clipUEMPM/pretrained_models/gene.pth')
     phargnn_model.eval()
     return phargnn_model
 
@@ -262,6 +261,7 @@ def evaluate(args,vocab,model, data_loader, device, stochastic=False, k=2):
 
         gene = []
         inputs = batch_data[0].to(device)
+        input_mask = batch_data[1].to(device)
         batch_size = inputs.shape[0]
         props = batch_data[4].to(inputs.device, non_blocking=True)
         print(batch_data[7])
@@ -271,7 +271,7 @@ def evaluate(args,vocab,model, data_loader, device, stochastic=False, k=2):
         v = v.unsqueeze(0)
 
         for _ in range(args.gene_N):
-            z = torch.randn(1,batch_size,model.hidden_dim).to(device)
+            z, _ = model.smiencoder.calculate_z_gene(inputs, input_mask)
             zzz, encoder_mask = model.expand_then_fusing(z, vm, vvs)
 
             token = torch.full((batch_size, model.smiencoder.max_len), model.smiencoder.pad_value, dtype=torch.long, device=device)
@@ -303,7 +303,7 @@ if __name__ == '__main__':
     model.eval()
     model.to(device)
     gene_dataset = SemiSmilesDataset("./datasets/gene.csv", st_tokenizer,
-                                    use_random_input_smiles = False, use_random_target_smiles = False, corrupt=False,shuffle = False
+                                    use_random_input_smiles = True, use_random_target_smiles = False, corrupt=True,shuffle = True
                                     ,normal_path=args.normal_path)
     
     gene_sampler = RandomSampler(gene_dataset)
@@ -317,8 +317,3 @@ if __name__ == '__main__':
                               persistent_workers=True)
     
     evaluate(args,vocab,model, gene_loader, device, stochastic=False, k=args.k)
-    
-    
-
-
-
