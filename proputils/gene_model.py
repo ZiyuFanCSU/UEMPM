@@ -44,6 +44,10 @@ class geneModel(nn.Module):
         self.property_mask = nn.Parameter(torch.zeros(1, 1, params['hidden_dim']))   
         self.property_embed = nn.Linear(1, hidden_dim)
         self.propencoder = TransformerEncoder(hidden_dim, ff_dim, num_head=n_head, num_layer=n_layers)
+        self.attention_S = MultiheadAttention(hidden_dim, n_head, dropout=0.1)
+        self.attention_P = MultiheadAttention(hidden_dim, n_head, dropout=0.1)
+        self.zzs_fuse_linear = nn.Linear(2 * hidden_dim, hidden_dim)
+        self.vvs_fuse_linear = nn.Linear(2 * hidden_dim, hidden_dim)
 
         self.expand = nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
@@ -97,16 +101,23 @@ class geneModel(nn.Module):
         return z,mpm_mask,xxt
 
     
-    def expand_then_fusing(self, z, pp_mask, vvs):
+    def expand_then_fusing(self, z, pp_mask, vvs_orig):
         zz = self.expand(z.squeeze(0))  
         zz = self.smiencoder.pos_encoding(zz)  
-        zzs = zz + self.zz_seg_encoding 
+        zzs_orig = zz + self.zz_seg_encoding 
 
-        # cat pp and latent
         full_mask = zz.new_zeros(zz.shape[1], zz.shape[0])
-        full_mask = torch.cat((pp_mask, full_mask), dim=1)  
+        zzs_attn = self.attention_S(zzs_orig, vvs_orig, vvs_orig, key_padding_mask=pp_mask)[0]
+        vvs_attn = self.attention_P(vvs_orig, zzs_orig, zzs_orig, key_padding_mask=full_mask)[0]
 
-        zzz = torch.cat((vvs, zzs), dim=0)  
+        zzs = torch.cat([zzs_orig, zzs_attn], dim=-1) 
+        zzs = self.zzs_fuse_linear(zzs)
+
+        vvs = torch.cat([vvs_orig, vvs_attn], dim=-1) 
+        vvs = self.vvs_fuse_linear(vvs)
+
+        full_mask = torch.cat((pp_mask, full_mask), dim=1)  
+        zzz = torch.cat((vvs, zzs), dim=0) 
         zzz = self.dencoder(zzz, full_mask) 
 
         return zzz, full_mask
