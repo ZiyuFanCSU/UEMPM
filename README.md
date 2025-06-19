@@ -26,7 +26,7 @@ Download [pretraining data](https://drive.google.com/drive/folders/1BOGG5xSRv4XV
 
 **Note:** You can find the toy dataset in ``./datasets/toy/``
 
-You can download the pre-trained models: [UEMPM_gene](https://drive.google.com/drive/folders/1kpXcK0yZZqwbj4tCYm8NS8GDh6k_Fs36?usp=drive_link) and [UEMPM_pre](https://drive.google.com/drive/folders/1kpXcK0yZZqwbj4tCYm8NS8GDh6k_Fs36?usp=drive_link). Put them into ``./pretrained_models/``
+You can download the pre-trained models: [UEMPM_gene](https://drive.google.com/drive/folders/1dBoiEj8jy0cE1TrBdU7xVBzqkmrPnRsa?usp=sharing) and [UEMPM_pre](https://drive.google.com/drive/folders/1dBoiEj8jy0cE1TrBdU7xVBzqkmrPnRsa?usp=sharing). Put them into ``./pretrained_models/``
 
 **Note:** This may require modifying the path and filename to ensure successful execution.
 
