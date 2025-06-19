@@ -198,3 +198,30 @@ class STransformer(nn.Module):
         if return_z:
             return predict, z.detach().cpu().numpy()
         return predict
+    @amp.custom_fwd(cast_inputs=torch.float32)
+    def resample2(self, z):
+        batch_size = z.size(0)
+        if self.non_vae:
+            return torch.randn(batch_size, self.hidden_dim).to(z.device), z.new_zeros(1)
+
+        z_mean = self.mean(z)
+        z_log_var = -torch.abs(self.var(z))
+
+        kl_loss = -0.5 * torch.sum(1 + z_log_var - z_mean.pow(2) - z_log_var.exp()) / batch_size
+
+        epsilon = torch.randn_like(z_mean).to(z.device)
+        z_ = z_mean + torch.exp(z_log_var/2)* 1.5 * epsilon
+
+        return z_, kl_loss
+    def calculate_z_gene(self, inputs, input_mask):
+        x = self.word_embed(inputs)
+        xt = x.permute(1, 0, 2).contiguous()  # (seq,batch,feat)
+        xt = self.pos_encoding(xt)
+        xxt = self.encoder(xt, input_mask)  # (s b f), input masks need not transpose
+        foo = xxt.new_ones(1, *xxt.shape[1:])
+        z, _ = self.attention(foo, xxt, xxt, key_padding_mask=input_mask)
+        z = z.squeeze(0)
+
+        z, kl_loss = self.resample2(z)
+
+        return z.unsqueeze(0), kl_loss
